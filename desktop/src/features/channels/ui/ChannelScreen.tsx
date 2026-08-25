@@ -1,5 +1,4 @@
 import * as React from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
@@ -48,11 +47,6 @@ import {
   getThreadReference,
   isThreadReply,
 } from "@/features/messages/lib/threading";
-import { hasPersistedHydratedChannel } from "@/features/messages/lib/channelHeadCache";
-import {
-  resolveTimelineLoadingLatch,
-  selectTimelineLoadingState,
-} from "@/features/messages/lib/timelineLoadingState";
 import { useFetchOlderMessages } from "@/features/messages/useFetchOlderMessages";
 import { useIndependentThreadPanel } from "@/features/messages/useIndependentThreadPanel";
 import { useThreadReplies } from "@/features/messages/useThreadReplies";
@@ -60,7 +54,7 @@ import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
-import type { RelayEvent, RespondToMode } from "@/shared/api/types";
+import type { RespondToMode } from "@/shared/api/types";
 import { ChannelScreenLoadingFallback } from "@/features/channels/ui/ChannelScreenLoadingFallback";
 import {
   useHuddleChannelMessages,
@@ -77,20 +71,20 @@ import { useElementWidth } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/AuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { humanChannelTimelineEvents } from "@/shared/lib/humanChannelEventPolicy";
 import { useChannelActivityTyping } from "./useChannelActivityTyping";
 import { useChannelAgentSessions } from "./useChannelAgentSessions";
+import { EMPTY_EVENTS, useHuman } from "../useHumanChannelEvents";
 import { useMessageProfiles } from "./useMessageProfiles";
 import { useChannelPanelHistoryState } from "./useChannelPanelHistoryState";
 import { useChannelProfilePanel } from "./useChannelProfilePanel";
 import { useChannelTargetReset } from "./useChannelTargetReset";
 import { useChannelRouteTarget } from "./useChannelRouteTarget";
+import { useChannelTimelineLoading } from "./useChannelTimelineLoading";
 import { useChannelOpenReadState } from "./useChannelOpenReadState";
 import { useChannelUnreadState } from "./useChannelUnreadState";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 import { GuardedChannelPane } from "./GuardedChannelPane";
 import { useNavigationGuard } from "./useNavigationGuard";
-const EMPTY_RELAY_EVENTS: RelayEvent[] = [];
 export function ChannelScreen({
   activeChannel,
   autoSendDraftKey,
@@ -103,7 +97,6 @@ export function ChannelScreen({
   targetMessageEvents,
   targetMessageId,
 }: ChannelScreenProps) {
-  const queryClient = useQueryClient();
   const { goHome } = useAppNavigation();
   const { activeCommunity } = useCommunities();
   const {
@@ -263,7 +256,7 @@ export function ChannelScreen({
   } = useHuddleChannelMessages({
     activeChannel,
     isHuddleTranscript,
-    messages: messagesQuery.data ?? EMPTY_RELAY_EVENTS,
+    messages: messagesQuery.data ?? EMPTY_EVENTS,
     targetMessageEvents,
     windowStore: windowQuery.data,
   });
@@ -275,15 +268,8 @@ export function ChannelScreen({
     messages: messagesQuery.data,
     resolvedMessages,
   });
-  const threadReplyEvents = threadRepliesQuery.data ?? EMPTY_RELAY_EVENTS;
-  const humanResolvedMessages = React.useMemo(
-    () => humanChannelTimelineEvents(resolvedMessages),
-    [resolvedMessages],
-  );
-  const humanThreadReplyEvents = React.useMemo(
-    () => humanChannelTimelineEvents(threadReplyEvents),
-    [threadReplyEvents],
-  );
+  const threadReplyEvents = threadRepliesQuery.data ?? EMPTY_EVENTS;
+  const [shown, replies] = useHuman(resolvedMessages, threadReplyEvents);
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
@@ -413,7 +399,7 @@ export function ChannelScreen({
   const timelineMessages = React.useMemo(
     () =>
       formatTimelineMessages(
-        humanResolvedMessages,
+        shown,
         activeChannel,
         currentPubkey,
         currentProfile?.avatarUrl ?? null,
@@ -434,13 +420,13 @@ export function ChannelScreen({
       personaLookup,
       relaySelfPubkey,
       respondToLookup,
-      humanResolvedMessages,
+      shown,
     ],
   );
   const threadPanelData = useIndependentThreadPanel({
     activeChannel,
-    channelEvents: humanResolvedMessages,
-    threadReplyEvents: humanThreadReplyEvents,
+    channelEvents: shown,
+    threadReplyEvents: replies,
     rootId: effectiveOpenThreadHeadId,
     replyTargetId: threadReplyTargetId,
     expandedReplyIds: expandedThreadReplyIds,
@@ -628,33 +614,16 @@ export function ChannelScreen({
       setThreadReplyTargetId,
       setThreadScrollTargetId,
     });
-  const settledChannelIdRef = React.useRef<string | null>(null);
-  const hasSettledThisChannel =
-    activeChannelId !== null && settledChannelIdRef.current === activeChannelId;
-  const timelineLoadingNow =
-    activeChannel !== null &&
-    activeChannel.channelType !== "forum" &&
-    selectTimelineLoadingState(
-      {
-        isPending: messagesQuery.isPending,
-        isFetching: messagesQuery.isFetching,
-        isPlaceholderData: messagesQuery.isPlaceholderData,
-        dataLength: messagesQuery.data?.length ?? null,
-      },
-      // A persisted head only counts as hydrated when it has rows to paint
-      // (channelHeadCache.ts), so this bypass never settles onto an empty
-      // placeholder while the authoritative refresh is still in flight.
-      hasSettledThisChannel ||
-        (activeChannelId !== null &&
-          hasPersistedHydratedChannel(queryClient, activeChannelId)),
-    );
-  const { settledChannelId, isLoading: isTimelineLoading } =
-    resolveTimelineLoadingLatch(
-      settledChannelIdRef.current,
-      activeChannelId,
-      timelineLoadingNow,
-    );
-  settledChannelIdRef.current = settledChannelId;
+  const isTimelineLoading = useChannelTimelineLoading({
+    activeChannelId,
+    enabled: activeChannel !== null && activeChannel.channelType !== "forum",
+    query: {
+      dataLength: messagesQuery.data?.length ?? null,
+      isFetching: messagesQuery.isFetching,
+      isPending: messagesQuery.isPending,
+      isPlaceholderData: messagesQuery.isPlaceholderData,
+    },
+  });
   const { welcomeKickoffStage, welcomeKickoffSettingUp } =
     useWelcomeKickoffStagePresence(
       activeChannel,
