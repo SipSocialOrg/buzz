@@ -60,7 +60,7 @@ import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { useRemindLater } from "@/features/reminders/ui/RemindMeLaterProvider";
-import { filterHomeFeedForHumanSurfaces } from "@/features/notifications/lib/feed";
+import { filterHomeFeedForInbox } from "@/features/notifications/lib/feed";
 import { deleteMessage, sendChannelMessage } from "@/shared/api/tauri";
 import type { Channel, HomeFeedResponse } from "@/shared/api/types";
 import { KIND_REACTION } from "@/shared/constants/kinds";
@@ -260,8 +260,8 @@ export function HomeView({
     feedItemState;
   const channels = useChannelsQuery().data;
   const humanFeed = React.useMemo(
-    () => filterHomeFeedForHumanSurfaces(feed, channels ?? [], currentPubkey),
-    [channels, currentPubkey, feed],
+    () => filterHomeFeedForInbox(feed, channels ?? []),
+    [channels, feed],
   );
   const { feedItems, activeLatchedItem, coldResolutionPending } =
     useInboxSelectionAnchor({

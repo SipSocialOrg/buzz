@@ -96,6 +96,13 @@ export function filterHomeFeedForHumanSurfaces(
     },
   };
 }
+/** Inbox keeps valid human rows visible even when the current user authored them. */
+export function filterHomeFeedForInbox(
+  feed: HomeFeedResponse | undefined,
+  channels: readonly NotificationChannel[] = [],
+): HomeFeedResponse | undefined {
+  return filterHomeFeedForHumanSurfaces(feed, channels);
+}
 
 function feedNotificationSource(item: FeedItem) {
   if (item.channelType === "dm") return "dm" as const;

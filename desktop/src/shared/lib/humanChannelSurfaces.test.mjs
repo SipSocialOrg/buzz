@@ -9,7 +9,7 @@ import {
 } from "@/features/messages/lib/formatTimelineMessages";
 import {
   eligibleFeedNotificationItems,
-  filterHomeFeedForHumanSurfaces,
+  filterHomeFeedForInbox,
 } from "@/features/notifications/lib/feed";
 import { buildHomeBadgeFeedItems } from "@/features/notifications/lib/homeBadge";
 
@@ -96,7 +96,7 @@ test("agent-only packets do not render or consume a visible row", () => {
   assert.equal(formatTimelineMessages([mention], null, SELF, null).length, 1);
 });
 
-test("Inbox, Home badge, and desktop notifications share one visibility result", () => {
+test("Inbox visibility is broader than unread and notification eligibility", () => {
   const input = feed([
     item("agent", {
       tags: [
@@ -123,19 +123,20 @@ test("Inbox, Home badge, and desktop notifications share one visibility result",
       ],
     }),
   ]);
-  const expected = ["forum-post", "mention"];
+  const expectedVisible = ["own", "forum-post", "mention"];
+  const expectedExternal = ["forum-post", "mention"];
 
   assert.deepEqual(
-    filterHomeFeedForHumanSurfaces(input, channels, SELF).feed.mentions.map(
+    filterHomeFeedForInbox(input, channels).feed.mentions.map(
       (entry) => entry.id,
     ),
-    expected,
+    expectedVisible,
   );
   assert.deepEqual(
     buildHomeBadgeFeedItems(input, [], new Set(), channels, SELF).map(
       (entry) => entry.id,
     ),
-    expected,
+    expectedExternal,
   );
   assert.deepEqual(
     eligibleFeedNotificationItems(
@@ -143,6 +144,6 @@ test("Inbox, Home badge, and desktop notifications share one visibility result",
       { mentions: true, needsAction: true, currentPubkey: SELF },
       channels,
     ).map((entry) => entry.id),
-    expected,
+    expectedExternal,
   );
 });
