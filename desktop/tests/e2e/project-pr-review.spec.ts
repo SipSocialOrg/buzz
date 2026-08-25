@@ -22,6 +22,23 @@ async function expectSinglePrimaryTextColumn(row: Locator) {
   expect(secondaryColors.every((color) => color !== primaryColor)).toBe(true);
 }
 
+async function waitForStableRowCount(rows: Locator): Promise<number> {
+  let previous = -1;
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const current = await rows.count();
+        stableSamples = current === previous ? stableSamples + 1 : 0;
+        previous = current;
+        return stableSamples >= 1 ? current : -1;
+      },
+      { intervals: [50, 50, 100], timeout: 5_000 },
+    )
+    .not.toBe(-1);
+  return previous;
+}
+
 // The projects surface is a preview feature — opt in before the app mounts.
 // Must run before installMockBridge so React reads the override on mount.
 async function enableProjectsFeature(page: import("@playwright/test").Page) {
@@ -1323,7 +1340,7 @@ test("overview tasks and reviews are grouped and selectable by project", async (
     const rows = firstGroup.locator(
       `[data-testid^="${section.rowTestIdPrefix}"]`,
     );
-    const rowCount = await rows.count();
+    const rowCount = await waitForStableRowCount(rows);
     expect(rowCount).toBeGreaterThan(0);
 
     const header = firstGroup.getByTestId(section.headerTestId);

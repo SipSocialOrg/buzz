@@ -12,6 +12,7 @@ import {
   filterHomeFeedForInbox,
 } from "@/features/notifications/lib/feed";
 import { buildHomeBadgeFeedItems } from "@/features/notifications/lib/homeBadge";
+import { humanChannelTimelineEvents } from "@/shared/lib/humanChannelEventPolicy";
 
 const SELF = "a".repeat(64);
 const OTHER = "b".repeat(64);
@@ -83,8 +84,13 @@ test("agent-only packets do not render or consume a visible row", () => {
     ],
   });
   assert.equal(isChannelUnreadTriggerEvent(packet, "stream", SELF), false);
-  assert.deepEqual(formatTimelineMessages([packet], null, SELF, null), []);
-  assert.equal(countTopLevelTimelineRows([packet]), 0);
+  assert.equal(formatTimelineMessages([packet], null, SELF, null).length, 1);
+  const humanPacketEvents = humanChannelTimelineEvents([packet]);
+  assert.deepEqual(
+    formatTimelineMessages(humanPacketEvents, null, SELF, null),
+    [],
+  );
+  assert.equal(countTopLevelTimelineRows(humanPacketEvents), 0);
 
   const mention = event({
     tags: [
@@ -93,7 +99,15 @@ test("agent-only packets do not render or consume a visible row", () => {
     ],
   });
   assert.equal(isChannelUnreadTriggerEvent(mention, "stream", SELF), true);
-  assert.equal(formatTimelineMessages([mention], null, SELF, null).length, 1);
+  assert.equal(
+    formatTimelineMessages(
+      humanChannelTimelineEvents([mention]),
+      null,
+      SELF,
+      null,
+    ).length,
+    1,
+  );
 });
 
 test("Inbox visibility is broader than unread and notification eligibility", () => {

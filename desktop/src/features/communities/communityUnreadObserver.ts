@@ -1,3 +1,4 @@
+import { DM_NOTIFIABLE_EVENT_KINDS } from "@/features/channels/isDmNotifiableKind";
 import { makeRootIdStore } from "@/features/channels/unreadRootIdStore";
 import {
   forcedUnreadMarker,
@@ -24,12 +25,12 @@ import type { RelaySubscriptionFilter } from "@/shared/api/relayClientShared";
 import { nip44DecryptFromSelf } from "@/shared/api/tauri";
 import type { ChannelType, RelayEvent } from "@/shared/api/types";
 import {
-  channelHumanMessageKinds,
-  channelHumanUnreadKinds,
   isHumanChannelMessage,
   isHumanChannelUnreadEvent,
 } from "@/shared/lib/humanChannelEventPolicy";
 import {
+  CHANNEL_MESSAGE_EVENT_KINDS,
+  HOME_MENTION_EVENT_KINDS,
   KIND_CHANNEL_MUTES,
   KIND_DM_VISIBILITY,
   KIND_READ_STATE,
@@ -265,7 +266,10 @@ export async function fetchCommunityUnread(args: {
           limit: UNREAD_EXISTENCE_LIMIT,
         });
     const mentionEventsPromise: Promise<RelayEvent[]> = client.fetchEvents({
-      kinds: [...channelHumanMessageKinds(channel.channelType)],
+      // Preserve the broad relay request shape used by project/task consumers.
+      // Human visibility is enforced on the returned events below, so machine
+      // packets and wrong-channel kinds cannot create unread state.
+      kinds: [...HOME_MENTION_EVENT_KINDS],
       "#h": [channel.id],
       "#p": [pubkey],
       since,
@@ -359,7 +363,12 @@ export function extractHiddenDmIds(events: RelayEvent[]): Set<string> {
 }
 
 function unreadKindsForChannel(channelType: ChannelType): number[] {
-  return [...channelHumanUnreadKinds(channelType)];
+  // Keep the relay query compatible with existing grouped project views.
+  // The final human-event predicate decides whether a fetched event may
+  // light the unread dot.
+  return channelType === "dm"
+    ? [...DM_NOTIFIABLE_EVENT_KINDS]
+    : [...CHANNEL_MESSAGE_EVENT_KINDS];
 }
 
 function isUnreadExternalEvent(

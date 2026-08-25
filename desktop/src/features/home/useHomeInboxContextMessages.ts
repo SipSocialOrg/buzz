@@ -9,6 +9,7 @@ import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMe
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 import { KIND_REACTION } from "@/shared/constants/kinds";
+import { humanChannelTimelineEvents } from "@/shared/lib/humanChannelEventPolicy";
 
 type UseHomeInboxContextMessagesOptions = {
   channelMessages?: RelayEvent[];
@@ -53,8 +54,13 @@ export function useHomeInboxContextMessages({
     const currentUserAvatarUrl = currentPubkey
       ? (profiles?.[currentPubkey.toLowerCase()]?.avatarUrl ?? null)
       : null;
+    const humanContextEvents = humanChannelTimelineEvents([
+      ...events,
+      ...structuralEvents,
+      ...contextReactions,
+    ]);
     const timelineMessages = formatTimelineMessages(
-      [...events, ...structuralEvents, ...contextReactions],
+      humanContextEvents,
       selectedChannel,
       currentPubkey,
       currentUserAvatarUrl,

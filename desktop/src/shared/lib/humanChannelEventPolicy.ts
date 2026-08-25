@@ -44,6 +44,13 @@ export function isAgentOnlyChannelEvent(
   );
 }
 
+/** Keep machine packets available to agent/project consumers, not human timelines. */
+export function humanChannelTimelineEvents<
+  Event extends Pick<RelayEvent, "tags"> | { tags?: string[][] },
+>(events: readonly Event[]): Event[] {
+  return events.filter((event) => !isAgentOnlyChannelEvent(event));
+}
+
 export function channelHumanMessageKinds(
   channelType: ChannelType,
 ): readonly number[] {

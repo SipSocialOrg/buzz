@@ -77,6 +77,7 @@ import { useElementWidth } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX } from "@/shared/layout/AuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { humanChannelTimelineEvents } from "@/shared/lib/humanChannelEventPolicy";
 import { useChannelActivityTyping } from "./useChannelActivityTyping";
 import { useChannelAgentSessions } from "./useChannelAgentSessions";
 import { useMessageProfiles } from "./useMessageProfiles";
@@ -275,6 +276,14 @@ export function ChannelScreen({
     resolvedMessages,
   });
   const threadReplyEvents = threadRepliesQuery.data ?? EMPTY_RELAY_EVENTS;
+  const humanResolvedMessages = React.useMemo(
+    () => humanChannelTimelineEvents(resolvedMessages),
+    [resolvedMessages],
+  );
+  const humanThreadReplyEvents = React.useMemo(
+    () => humanChannelTimelineEvents(threadReplyEvents),
+    [threadReplyEvents],
+  );
   const {
     entranceMessageId: welcomeEntranceMessageId,
     handleEntranceComplete: handleWelcomeEntranceComplete,
@@ -404,7 +413,7 @@ export function ChannelScreen({
   const timelineMessages = React.useMemo(
     () =>
       formatTimelineMessages(
-        resolvedMessages,
+        humanResolvedMessages,
         activeChannel,
         currentPubkey,
         currentProfile?.avatarUrl ?? null,
@@ -425,13 +434,13 @@ export function ChannelScreen({
       personaLookup,
       relaySelfPubkey,
       respondToLookup,
-      resolvedMessages,
+      humanResolvedMessages,
     ],
   );
   const threadPanelData = useIndependentThreadPanel({
     activeChannel,
-    channelEvents: resolvedMessages,
-    threadReplyEvents,
+    channelEvents: humanResolvedMessages,
+    threadReplyEvents: humanThreadReplyEvents,
     rootId: effectiveOpenThreadHeadId,
     replyTargetId: threadReplyTargetId,
     expandedReplyIds: expandedThreadReplyIds,

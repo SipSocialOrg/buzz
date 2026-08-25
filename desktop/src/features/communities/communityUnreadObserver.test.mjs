@@ -182,6 +182,52 @@ test("fetchCommunityUnread returns dot and mention count without total unread co
   assert.equal(relay.requests.at(-1)["#p"][0], PUBKEY);
 });
 
+test("fetchCommunityUnread ignores agent-only packets from broad relay queries", async () => {
+  const packet = event({
+    id: "agent-only".padEnd(64, "0"),
+    created_at: 30,
+    tags: [
+      ["h", CHANNEL_ID],
+      ["p", PUBKEY],
+      ["audience", "agent"],
+    ],
+  });
+  const relay = relayFor([
+    () => [
+      event({
+        tags: [
+          ["d", CHANNEL_ID],
+          ["p", PUBKEY],
+        ],
+      }),
+    ],
+    () => [
+      event({
+        tags: [
+          ["d", CHANNEL_ID],
+          ["t", "stream"],
+        ],
+      }),
+    ],
+    () => [],
+    () => [],
+    () => [],
+    () => [packet],
+    () => [packet],
+  ]);
+
+  const result = await fetchCommunityUnread({
+    client: relay,
+    pubkey: PUBKEY,
+    nowSeconds: 100,
+    decryptReadState: async (value) => value,
+    decryptMutes: async (value) => value,
+    readThreadRelationships: readRelationships(),
+  });
+
+  assert.deepEqual(result, { hasUnread: false, mentionCount: 0 });
+});
+
 test("fetchCommunityUnread ignores self-authored and read thread/message events", async () => {
   const threadReply = event({
     id: "reply".padEnd(64, "0"),
