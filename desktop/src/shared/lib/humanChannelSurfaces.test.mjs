@@ -132,6 +132,16 @@ test("Inbox visibility is broader than unread and notification eligibility", () 
     ),
     expectedVisible,
   );
+  const visibleInbox = filterHomeFeedForInbox(input, channels).feed.mentions;
+  assert.equal(
+    visibleInbox.find((entry) => entry.id === "mention").channelType,
+    undefined,
+    "visibility filtering must not rewrite an Inbox event and disturb its live-selection anchor",
+  );
+  assert.equal(
+    visibleInbox.find((entry) => entry.id === "mention"),
+    input.feed.mentions.find((entry) => entry.id === "mention"),
+  );
   assert.deepEqual(
     buildHomeBadgeFeedItems(input, [], new Set(), channels, SELF).map(
       (entry) => entry.id,

@@ -121,9 +121,7 @@ export function filterHomeFeedForInbox(
 ): HomeFeedResponse | undefined {
   if (!feed) return undefined;
   const filter = (items: readonly FeedItem[]) =>
-    items
-      .map((item) => enrichFeedItemChannel(item, channels))
-      .filter((item) => isHumanInboxItemVisible(item, channels));
+    items.filter((item) => isHumanInboxItemVisible(item, channels));
   return {
     ...feed,
     feed: {
