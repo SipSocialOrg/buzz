@@ -410,7 +410,9 @@ export function useHomeFeedNotificationState(
   // has been revealed in-channel, even if the aggregate `thread:<root>` marker
   // has not been advanced by opening Home.
   getMessageReadAt: (messageId: string) => number | null = () => null,
-  channels: ReadonlyArray<Pick<Channel, "id" | "name" | "channelType">> = [],
+  channels: ReadonlyArray<
+    Pick<Channel, "id" | "name" | "channelType" | "archivedAt">
+  > = [],
   silentChannelIds?: ReadonlySet<string>,
 ) {
   useFeedDesktopNotifications(
@@ -429,8 +431,14 @@ export function useHomeFeedNotificationState(
     readStoredSeenFeedIds(normalizedPubkey),
   );
   const currentFeedItems = React.useMemo(() => {
-    return buildHomeBadgeFeedItems(feed, extraInboxItems, localUnreadFeedIds);
-  }, [extraInboxItems, feed, localUnreadFeedIds]);
+    return buildHomeBadgeFeedItems(
+      feed,
+      extraInboxItems,
+      localUnreadFeedIds,
+      channels,
+      normalizedPubkey,
+    );
+  }, [channels, extraInboxItems, feed, localUnreadFeedIds, normalizedPubkey]);
   const currentFeedIds = React.useMemo(
     () => currentFeedItems.map((item) => item.id),
     [currentFeedItems],

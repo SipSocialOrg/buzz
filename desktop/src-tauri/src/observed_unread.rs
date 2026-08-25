@@ -21,7 +21,7 @@ use rusqlite::{params, Connection, Transaction};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const PER_CHANNEL_CAP: i64 = 1_000;
 const GLOBAL_CAP: i64 = 5_000;
 const HORIZON_SECONDS: i64 = 7 * 24 * 60 * 60;
@@ -177,13 +177,13 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn open_db(path: &Path) -> Result<Connection, String> {
-    let conn = Connection::open(path).map_err(|e| format!("open observed-unread db: {e}"))?;
+    let mut conn = Connection::open(path).map_err(|e| format!("open observed-unread db: {e}"))?;
     conn.pragma_update(None, "busy_timeout", 5_000)
         .map_err(|e| format!("configure observed-unread db: {e}"))?;
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| format!("configure observed-unread WAL: {e}"))?;
     conn.execute_batch("CREATE TABLE IF NOT EXISTS schema_meta(version INTEGER NOT NULL);
-        INSERT INTO schema_meta(version) SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM schema_meta);
+        INSERT INTO schema_meta(version) SELECT 2 WHERE NOT EXISTS(SELECT 1 FROM schema_meta);
         CREATE TABLE IF NOT EXISTS scope_state(
           scope TEXT PRIMARY KEY, generation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
           last_sequence INTEGER NOT NULL DEFAULT 0, migration_complete INTEGER NOT NULL DEFAULT 0,
@@ -209,7 +209,23 @@ fn open_db(path: &Path) -> Result<Connection, String> {
             row.get(0)
         })
         .map_err(|e| format!("read observed-unread schema: {e}"))?;
-    if version != SCHEMA_VERSION {
+    if version == 1 {
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("begin observed-unread v2 migration: {e}"))?;
+        tx.execute_batch(
+            "DELETE FROM observed_events;
+             DELETE FROM channel_latest;
+             UPDATE scope_state
+             SET generation=lower(hex(randomblob(16))),
+                 revision=revision+1,
+                 last_sequence=0;
+             UPDATE schema_meta SET version=2;",
+        )
+        .map_err(|e| format!("migrate observed-unread to v2: {e}"))?;
+        tx.commit()
+            .map_err(|e| format!("commit observed-unread v2 migration: {e}"))?;
+    } else if version != SCHEMA_VERSION {
         return Err(format!(
             "unsupported observed-unread schema version {version}"
         ));
@@ -685,6 +701,37 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = open_db(&dir.path().join("observed-unread.db")).unwrap();
         (dir, conn)
+    }
+
+    #[test]
+    fn v2_migration_clears_only_derived_unread_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("observed-unread.db");
+        let legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch("
+          CREATE TABLE schema_meta(version INTEGER NOT NULL);
+          INSERT INTO schema_meta VALUES(1);
+          CREATE TABLE scope_state(scope TEXT PRIMARY KEY,generation TEXT NOT NULL,revision INTEGER NOT NULL,last_sequence INTEGER NOT NULL,migration_complete INTEGER NOT NULL,membership_seeded INTEGER NOT NULL);
+          INSERT INTO scope_state VALUES('scope','old-generation',4,9,1,1);
+          CREATE TABLE observed_events(scope TEXT,event_id TEXT,channel_id TEXT,created_at INTEGER,root_id TEXT,high_priority INTEGER,counts_badge INTEGER,counts_app_badge INTEGER,PRIMARY KEY(scope,event_id));
+          INSERT INTO observed_events VALUES('scope','event','forum',42,NULL,0,1,1);
+          CREATE TABLE channel_latest(scope TEXT,channel_id TEXT,created_at INTEGER,PRIMARY KEY(scope,channel_id));
+          INSERT INTO channel_latest VALUES('scope','forum',42);
+          CREATE TABLE read_markers(scope TEXT,context_id TEXT,read_at INTEGER,PRIMARY KEY(scope,context_id));
+          INSERT INTO read_markers VALUES('scope','forum',40);
+          CREATE TABLE unread_membership(scope TEXT,kind TEXT,value TEXT,PRIMARY KEY(scope,kind,value));
+          INSERT INTO unread_membership VALUES('scope','followed','root');
+        ").unwrap();
+        drop(legacy);
+
+        let conn = open_db(&path).unwrap();
+        let scalar = |sql: &str| conn.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
+        assert_eq!(scalar("SELECT version FROM schema_meta"), 2);
+        assert_eq!(scalar("SELECT COUNT(*) FROM observed_events"), 0);
+        assert_eq!(scalar("SELECT COUNT(*) FROM channel_latest"), 0);
+        assert_eq!(scalar("SELECT COUNT(*) FROM read_markers"), 1);
+        assert_eq!(scalar("SELECT COUNT(*) FROM unread_membership"), 1);
+        assert_eq!(scalar("SELECT last_sequence FROM scope_state"), 0);
     }
     #[test]
     fn ingest_replay_gap_prune_and_projection() {

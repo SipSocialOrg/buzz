@@ -11,17 +11,17 @@ import {
 } from "@/features/messages/lib/threading";
 import { shouldNotifyForEvent } from "@/features/notifications/lib/shouldNotify";
 import { relayClient } from "@/shared/api/relayClient";
+import { CHANNEL_EVENT_KINDS } from "@/shared/constants/kinds";
+import type { Channel, ChannelType, RelayEvent } from "@/shared/api/types";
 import {
-  CHANNEL_EVENT_KINDS,
-  CHANNEL_MESSAGE_EVENT_KINDS,
-} from "@/shared/constants/kinds";
-import type { Channel, RelayEvent } from "@/shared/api/types";
+  isExternalHumanChannelUnreadEvent,
+  isHumanChannelUnreadEvent,
+} from "@/shared/lib/humanChannelEventPolicy";
 import {
   createTrailingDebounce,
   type TrailingDebounce,
 } from "@/shared/lib/trailingDebounce";
 
-import { isDmNotifiableKind } from "./isDmNotifiableKind";
 import { refreshChannelsWhenIdle } from "./refreshChannelsWhenIdle";
 
 export type UseLiveChannelUpdatesOptions = {
@@ -38,7 +38,7 @@ export type UseLiveChannelUpdatesOptions = {
    * someone other than the current user. Thread replies also fire
    * onThreadReplyNotification so Home inbox activity stays in sync. Used to
    * drive the observed unread-event map that powers sidebar unread state.
-   * See `UNREAD_TRIGGER_KINDS` for the exact kind set.
+   * See `humanChannelEventPolicy` for the exact kind set.
    */
   onChannelMessage?: (channelId: string, event: RelayEvent) => void;
   /**
@@ -77,16 +77,23 @@ const LIVE_SUBSCRIPTION_RETRY_MAX_MS = 30_000;
 // trailing invalidation instead of one per event.
 const CHANNELS_INVALIDATE_DEBOUNCE_MS = 500;
 
-// Only "new content" kinds should bump unread state. Shared with the
-// catch-up query in useUnreadChannels so the two paths stay in lockstep.
-const UNREAD_TRIGGER_KINDS = new Set<number>(CHANNEL_MESSAGE_EVENT_KINDS);
-
 export const EMPTY_SET: ReadonlySet<string> = new Set();
 
 export function isChannelUnreadTriggerKind(kind: number, isDmChannel: boolean) {
-  return isDmChannel
-    ? isDmNotifiableKind(kind)
-    : UNREAD_TRIGGER_KINDS.has(kind);
+  return isHumanChannelUnreadEvent(
+    { kind, tags: [] },
+    isDmChannel ? "dm" : "stream",
+  );
+}
+
+export function isChannelUnreadTriggerEvent(
+  event: RelayEvent,
+  channelType: ChannelType,
+  currentPubkey?: string,
+) {
+  return currentPubkey === undefined
+    ? isHumanChannelUnreadEvent(event, channelType)
+    : isExternalHumanChannelUnreadEvent(event, channelType, currentPubkey);
 }
 
 export function isHomeActivityEvent(
@@ -176,6 +183,10 @@ export function useLiveChannelUpdates(
       ),
     [channels],
   );
+  const channelTypeMap = React.useMemo(
+    () => new Map(channels.map((channel) => [channel.id, channel.channelType])),
+    [channels],
+  );
   const dmSubscriptionStartedAtRef = React.useRef(0);
 
   // Reset subscription timestamp when identity changes.
@@ -195,7 +206,14 @@ export function useLiveChannelUpdates(
   const handleDmEvent = React.useEffectEvent(
     (event: RelayEvent, isFirstNotificationDelivery: boolean) => {
       // Only human-visible message kinds should fire DM notifications.
-      if (!isDmNotifiableKind(event.kind) || !isFirstNotificationDelivery) {
+      if (
+        !isExternalHumanChannelUnreadEvent(
+          event,
+          "dm",
+          normalizedCurrentPubkey,
+        ) ||
+        !isFirstNotificationDelivery
+      ) {
         return;
       }
 
@@ -242,11 +260,9 @@ export function useLiveChannelUpdates(
       return;
     }
 
-    const isDmChannel = dmChannelMap.has(channelId);
-    const isUnreadTriggerKind = isChannelUnreadTriggerKind(
-      event.kind,
-      isDmChannel,
-    );
+    const channelType = channelTypeMap.get(channelId) ?? "stream";
+    const isDmChannel = channelType === "dm";
+    const isUnreadTriggerKind = isHumanChannelUnreadEvent(event, channelType);
 
     // Recency is presentation state, not notification state. Every recognized
     // message advances Recent ordering, including self-authored and muted
@@ -269,10 +285,11 @@ export function useLiveChannelUpdates(
     // and to events authored by someone other than the current user — your
     // own outgoing messages should never make a channel unread, and
     // reactions / edits / system messages aren't "new content".
-    const isExternalTriggerEvent =
-      isUnreadTriggerKind &&
-      (normalizedCurrentPubkey.length === 0 ||
-        event.pubkey.toLowerCase() !== normalizedCurrentPubkey);
+    const isExternalTriggerEvent = isExternalHumanChannelUnreadEvent(
+      event,
+      channelType,
+      normalizedCurrentPubkey,
+    );
     const isFirstNotificationDelivery =
       !isExternalTriggerEvent ||
       trackSeenEvent(
@@ -339,7 +356,16 @@ export function useLiveChannelUpdates(
   });
 
   const handleMentionEvent = React.useEffectEvent((event: RelayEvent) => {
-    if (!isExternalMentionEvent(event, normalizedCurrentPubkey)) {
+    const channelId = getChannelIdFromTags(event.tags);
+    const channelType = channelId ? channelTypeMap.get(channelId) : undefined;
+    if (
+      !channelType ||
+      !isExternalHumanChannelUnreadEvent(
+        event,
+        channelType,
+        normalizedCurrentPubkey,
+      )
+    ) {
       return;
     }
 

@@ -1,12 +1,6 @@
-import {
-  CHANNEL_MESSAGE_EVENT_KINDS,
-  KIND_HUDDLE_STARTED,
-} from "@/shared/constants/kinds";
+import { DM_HUMAN_UNREAD_KINDS } from "@/shared/lib/humanChannelEventPolicy";
 
-export const DM_NOTIFIABLE_EVENT_KINDS = [
-  ...CHANNEL_MESSAGE_EVENT_KINDS,
-  KIND_HUDDLE_STARTED,
-] as const;
+export const DM_NOTIFIABLE_EVENT_KINDS = DM_HUMAN_UNREAD_KINDS;
 
 const DM_NOTIFIABLE_KINDS = new Set<number>(DM_NOTIFIABLE_EVENT_KINDS);
 

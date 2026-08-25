@@ -1,6 +1,11 @@
 import type { FeedItem, HomeFeedResponse } from "@/shared/api/types";
 import { maxReadAt } from "@/features/channels/readState/readStateFormat";
 import {
+  enrichFeedItemChannel,
+  isHumanFeedItemVisible,
+  type NotificationChannel,
+} from "@/features/notifications/lib/feed";
+import {
   getThreadReference,
   isBroadcastReply,
   isThreadReply,
@@ -23,6 +28,8 @@ export function buildHomeBadgeFeedItems(
   feed: HomeFeedResponse | undefined,
   extraInboxItems: readonly FeedItem[],
   localUnreadFeedIds: ReadonlySet<string>,
+  channels: readonly NotificationChannel[] = [],
+  currentPubkey?: string,
 ): FeedItem[] {
   // Thread activity is surfaced directly on its channel's hover preview. It
   // should not also inflate the Inbox numeral, which is reserved for the
@@ -47,7 +54,9 @@ export function buildHomeBadgeFeedItems(
     );
   }
 
-  return dedupeFeedItemsById(items);
+  return dedupeFeedItemsById(items)
+    .map((item) => enrichFeedItemChannel(item, channels))
+    .filter((item) => isHumanFeedItemVisible(item, channels, currentPubkey));
 }
 
 export function shouldCountTowardHomeBadgeSubtotal(

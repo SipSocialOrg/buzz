@@ -37,6 +37,7 @@ import {
   KIND_SYSTEM_MESSAGE,
 } from "@/shared/constants/kinds";
 import { resolveEventAuthorPubkey } from "@/shared/lib/authors";
+import { isAgentOnlyChannelEvent } from "@/shared/lib/humanChannelEventPolicy";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { channelRoleMap } from "@/shared/lib/rosterDerivations";
 
@@ -49,7 +50,10 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 
 const HEX_RE = /^[0-9a-f]+$/i;
 
-export function isTimelineContentEvent(event: RelayEvent) {
+export function isTimelineContentEvent(
+  event: Pick<RelayEvent, "kind"> & { tags?: string[][] },
+) {
+  if (isAgentOnlyChannelEvent(event)) return false;
   return (
     event.kind === KIND_STREAM_MESSAGE ||
     event.kind === KIND_STREAM_MESSAGE_V2 ||

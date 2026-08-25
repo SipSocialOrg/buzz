@@ -37,6 +37,13 @@ pub(super) async fn fetch_agent_owner_pubkeys(
     .collect()
 }
 
+fn is_agent_only_event(event: &nostr::Event) -> bool {
+    event
+        .tags
+        .iter()
+        .any(|tag| tag.as_slice() == ["audience".to_string(), "agent".to_string()])
+}
+
 fn tags_to_vec(event: &nostr::Event) -> Vec<Vec<String>> {
     event
         .tags
@@ -189,6 +196,7 @@ pub async fn get_forum_posts(
     let suppressed = link_preview_suppression_targets(&events, &edits, &owner_pubkeys);
     let messages: Vec<ForumMessageInfo> = events
         .iter()
+        .filter(|event| !is_agent_only_event(event))
         .map(|ev| {
             let mut message = forum_message_from_event(ev, &channel_id);
             apply_link_preview_suppression(&mut message.tags, &message.event_id, &suppressed);
@@ -212,14 +220,14 @@ pub async fn get_forum_thread(
     state: State<'_, AppState>,
 ) -> Result<ForumThreadResponse, String> {
     let _ = (limit, cursor);
-    // Two filters: the root event itself, plus any reply (kinds 9/45003)
+    // Two filters: the kind-45001 root, plus kind-45003 replies
     // that references it via #e.
     let events = query_relay(
         &state,
         &[
-            serde_json::json!({ "ids": [event_id.clone()], "kinds": [9, 40002, 45001, 45003] }),
+            serde_json::json!({ "ids": [event_id.clone()], "kinds": [45001] }),
             serde_json::json!({
-                "kinds": [9, 45003],
+                "kinds": [45003],
                 "#e": [event_id.clone()],
                 "#h": [channel_id.clone()],
             }),
@@ -246,6 +254,9 @@ pub async fn get_forum_thread(
     let mut root: Option<ForumMessageInfo> = None;
     let mut replies: Vec<ForumThreadReplyInfo> = Vec::new();
     for ev in &events {
+        if is_agent_only_event(ev) {
+            continue;
+        }
         if ev.id.to_hex() == event_id {
             let mut message = forum_message_from_event(ev, &channel_id);
             apply_link_preview_suppression(&mut message.tags, &message.event_id, &suppressed);
@@ -282,6 +293,16 @@ mod tests {
             .tags(tags)
             .sign_with_keys(keys)
             .expect("event signs")
+    }
+
+    #[test]
+    fn exact_agent_audience_is_hidden_but_human_mentions_remain() {
+        let keys = Keys::generate();
+        let human = signed_event(&keys, 45001, vec![vec!["p".into(), "human".into()]]);
+        assert!(!is_agent_only_event(&human));
+
+        let agent = signed_event(&keys, 45001, vec![vec!["audience".into(), "agent".into()]]);
+        assert!(is_agent_only_event(&agent));
     }
 
     #[test]

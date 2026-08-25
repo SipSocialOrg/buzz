@@ -4,7 +4,6 @@ import {
   forcedUnreadStore,
   type ForcedUnreadMap,
 } from "@/features/channels/forcedUnreadStore";
-import { DM_NOTIFIABLE_EVENT_KINDS } from "@/features/channels/isDmNotifiableKind";
 import { mergeReadStateEvents } from "@/features/channels/readState/readStateSnapshot";
 import {
   maxReadAt,
@@ -25,8 +24,12 @@ import type { RelaySubscriptionFilter } from "@/shared/api/relayClientShared";
 import { nip44DecryptFromSelf } from "@/shared/api/tauri";
 import type { ChannelType, RelayEvent } from "@/shared/api/types";
 import {
-  CHANNEL_MESSAGE_EVENT_KINDS,
-  HOME_MENTION_EVENT_KINDS,
+  channelHumanMessageKinds,
+  channelHumanUnreadKinds,
+  isHumanChannelMessage,
+  isHumanChannelUnreadEvent,
+} from "@/shared/lib/humanChannelEventPolicy";
+import {
   KIND_CHANNEL_MUTES,
   KIND_DM_VISIBILITY,
   KIND_READ_STATE,
@@ -262,7 +265,7 @@ export async function fetchCommunityUnread(args: {
           limit: UNREAD_EXISTENCE_LIMIT,
         });
     const mentionEventsPromise: Promise<RelayEvent[]> = client.fetchEvents({
-      kinds: [...HOME_MENTION_EVENT_KINDS],
+      kinds: [...channelHumanMessageKinds(channel.channelType)],
       "#h": [channel.id],
       "#p": [pubkey],
       since,
@@ -277,6 +280,7 @@ export async function fetchCommunityUnread(args: {
     if (!hasUnread) {
       hasUnread = unreadEvents.some(
         (event) =>
+          isHumanChannelUnreadEvent(event, channel.channelType) &&
           isUnreadExternalEvent(event, readState, readAt, normalizedPubkey) &&
           shouldNotifyForEvent(event, normalizedPubkey, {
             participatedRootIds,
@@ -289,8 +293,10 @@ export async function fetchCommunityUnread(args: {
       );
     }
 
-    mentionCount += mentionEvents.filter((event) =>
-      isUnreadExternalEvent(event, readState, readAt, normalizedPubkey),
+    mentionCount += mentionEvents.filter(
+      (event) =>
+        isHumanChannelMessage(event, channel.channelType) &&
+        isUnreadExternalEvent(event, readState, readAt, normalizedPubkey),
     ).length;
   }
 
@@ -353,9 +359,7 @@ export function extractHiddenDmIds(events: RelayEvent[]): Set<string> {
 }
 
 function unreadKindsForChannel(channelType: ChannelType): number[] {
-  return channelType === "dm"
-    ? [...DM_NOTIFIABLE_EVENT_KINDS]
-    : [...CHANNEL_MESSAGE_EVENT_KINDS];
+  return [...channelHumanUnreadKinds(channelType)];
 }
 
 function isUnreadExternalEvent(
