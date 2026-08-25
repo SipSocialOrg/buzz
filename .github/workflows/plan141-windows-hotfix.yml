@@ -13,8 +13,10 @@ jobs:
     timeout-minutes: 60
     env:
       BASE_SHA: 39f8b46935736334cdd7045a4e4b5d7eb1a33888
+      FIX_SHA: 54c296fd95b7203ce6891b7de5797fd218da4dcf
       HOTFIX_VERSION: 0.5.19-plan141.1
       TARGET: x86_64-pc-windows-msvc
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -25,9 +27,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-list --count "$BASE_SHA"..HEAD)" = "1"
+          test "$(git rev-parse "$FIX_SHA"^)" = "$BASE_SHA"
           test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git merge-base "$FIX_SHA" HEAD)" = "$FIX_SHA"
           git diff --check "$BASE_SHA"..HEAD
+          git diff --name-only "$FIX_SHA"..HEAD > workflow-files.txt
+          printf '%s\n' .github/workflows/plan141-windows-hotfix.yml > expected-workflow-files.txt
+          diff -u expected-workflow-files.txt workflow-files.txt
+
           git diff --name-only "$BASE_SHA"..HEAD > changed-files.txt
           cat > expected-files.txt <<'EOF'
           .github/workflows/plan141-windows-hotfix.yml
@@ -105,12 +112,22 @@ jobs:
           cargo build --release --target "$TARGET" -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
           ./scripts/bundle-sidecars.sh "$TARGET"
 
+      - name: Generate non-updating bundle config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > desktop/src-tauri/tauri.plan141.conf.json <<'JSON'
+          {
+            "bundle": { "createUpdaterArtifacts": false }
+          }
+          JSON
+
       - name: Build unsigned Windows installer
         shell: bash
         run: |
           set -euo pipefail
           cd desktop
-          pnpm tauri build --verbose --target "$TARGET" --bundles nsis
+          pnpm tauri build --verbose --target "$TARGET" --bundles nsis --config src-tauri/tauri.plan141.conf.json
 
       - name: Verify and checksum installer
         id: artifact
