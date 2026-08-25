@@ -88,6 +88,15 @@ jobs:
           pnpm check:file-sizes
           pnpm build
 
+      - name: Create compile-time sidecar placeholders
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p desktop/src-tauri/binaries
+          for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+            touch "desktop/src-tauri/binaries/${bin}-${TARGET}.exe"
+          done
+
       - name: Test desktop Rust
         shell: bash
         run: |
@@ -111,6 +120,20 @@ jobs:
           set -euo pipefail
           cargo build --release --target "$TARGET" -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
           ./scripts/bundle-sidecars.sh "$TARGET"
+
+      - name: Prove real sidecars replaced placeholders
+        shell: bash
+        run: |
+          set -euo pipefail
+          hashes="desktop/src-tauri/binaries/plan141-sidecars.sha256"
+          : > "$hashes"
+          for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+            sidecar="desktop/src-tauri/binaries/${bin}-${TARGET}.exe"
+            test -s "$sidecar"
+            sha256sum "$sidecar" >> "$hashes"
+          done
+          test "$(wc -l < "$hashes" | tr -d ' ')" = "5"
+          ! grep -q '^e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 ' "$hashes"
 
       - name: Generate non-updating bundle config
         shell: bash
