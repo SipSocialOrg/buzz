@@ -123,7 +123,7 @@ test("Inbox visibility is broader than unread and notification eligibility", () 
       ],
     }),
   ]);
-  const expectedVisible = ["own", "forum-post", "mention"];
+  const expectedVisible = ["own", "forum-post", "retired", "mention"];
   const expectedExternal = ["forum-post", "mention"];
 
   assert.deepEqual(

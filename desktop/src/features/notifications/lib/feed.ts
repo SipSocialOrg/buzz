@@ -96,12 +96,43 @@ export function filterHomeFeedForHumanSurfaces(
     },
   };
 }
-/** Inbox keeps valid human rows visible even when the current user authored them. */
+
+function isHumanInboxItemVisible(
+  item: FeedItem,
+  channels: readonly NotificationChannel[],
+): boolean {
+  if (isAgentOnlyChannelEvent(item)) return false;
+  if (!CHANNEL_MESSAGE_KINDS.has(item.kind)) return true;
+  const channel = resolvedChannel(item, channels);
+  const channelType =
+    channel?.channelType ?? validChannelType(item.channelType);
+  return channelType ? isHumanChannelMessage(item, channelType) : true;
+}
+
+/**
+ * Inbox keeps valid human history visible, including the current user's own
+ * messages and rows from channels that were archived after the message was
+ * received. Those rows remain ineligible for unread badges and desktop
+ * notifications through `filterHomeFeedForHumanSurfaces`.
+ */
 export function filterHomeFeedForInbox(
   feed: HomeFeedResponse | undefined,
   channels: readonly NotificationChannel[] = [],
 ): HomeFeedResponse | undefined {
-  return filterHomeFeedForHumanSurfaces(feed, channels);
+  if (!feed) return undefined;
+  const filter = (items: readonly FeedItem[]) =>
+    items
+      .map((item) => enrichFeedItemChannel(item, channels))
+      .filter((item) => isHumanInboxItemVisible(item, channels));
+  return {
+    ...feed,
+    feed: {
+      mentions: filter(feed.feed.mentions ?? []),
+      needsAction: filter(feed.feed.needsAction ?? []),
+      activity: filter(feed.feed.activity ?? []),
+      agentActivity: filter(feed.feed.agentActivity ?? []),
+    },
+  };
 }
 
 function feedNotificationSource(item: FeedItem) {
