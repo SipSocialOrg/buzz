@@ -12,9 +12,10 @@ pub(super) const DIRECTORY_PAGE_SIZE: usize = 500;
 // Keep this aligned with the relay's aggregate explicit-`#h` request bound.
 // Each filter carries one channel so the relay can use its channel_id index.
 const LAST_MESSAGE_QUERY_CHANNEL_BATCH_SIZE: usize = 128;
-// Human-visible channel activity that drives sidebar Recent ordering. Keep this
-// aligned with desktop/src/shared/constants/kinds.ts::CHANNEL_MESSAGE_EVENT_KINDS.
-const CHANNEL_RECENCY_EVENT_KINDS: [u16; 4] = [9, 40002, 45001, 45003];
+// Human-visible recency is channel-type-specific. A global union lets hidden
+// stream events reorder forums and hidden forum events reorder streams.
+const STREAM_RECENCY_EVENT_KINDS: [u16; 2] = [9, 40002];
+const FORUM_RECENCY_EVENT_KINDS: [u16; 2] = [45001, 45003];
 
 pub(super) fn advance_directory_cursor(filter: &mut serde_json::Value, page: &[nostr::Event]) {
     let last = page
@@ -135,12 +136,24 @@ pub(super) fn compute_channels_hash(channels: &[ChannelInfo]) -> String {
 
 // ── Core fetch implementation ─────────────────────────────────────────────────
 
-pub(super) fn last_message_filter(channel_id: &str) -> serde_json::Value {
+pub(super) fn last_message_filter(channel_id: &str, channel_type: &str) -> serde_json::Value {
+    let kinds = if channel_type == "forum" {
+        &FORUM_RECENCY_EVENT_KINDS[..]
+    } else {
+        &STREAM_RECENCY_EVENT_KINDS[..]
+    };
     serde_json::json!({
-        "kinds": CHANNEL_RECENCY_EVENT_KINDS,
+        "kinds": kinds,
         "#h": [channel_id],
         "limit": 1
     })
+}
+
+fn is_agent_only_event(event: &nostr::Event) -> bool {
+    event
+        .tags
+        .iter()
+        .any(|tag| tag.as_slice() == ["audience".to_string(), "agent".to_string()])
 }
 
 pub(super) fn last_message_filter_batches(
@@ -376,9 +389,9 @@ pub(super) async fn fetch_channels(
     // abort this refresh so the frontend keeps its previous Recent ordering.
     let all_channel_ids: Vec<String> = channels.iter().map(|c| c.id.clone()).collect();
     if !all_channel_ids.is_empty() {
-        let last_msg_filters: Vec<serde_json::Value> = all_channel_ids
+        let last_msg_filters: Vec<serde_json::Value> = channels
             .iter()
-            .map(|id| last_message_filter(id))
+            .map(|channel| last_message_filter(&channel.id, &channel.channel_type))
             .collect();
 
         // Bind both filter arrays before the join so their lifetimes cover
@@ -411,6 +424,9 @@ pub(super) async fn fetch_channels(
         let mut last_message_by_channel: std::collections::HashMap<String, u64> =
             std::collections::HashMap::new();
         for ev in &messages {
+            if is_agent_only_event(ev) {
+                continue;
+            }
             if let Some(ch_id) = ev.tags.iter().find_map(|t| {
                 let s = t.as_slice();
                 (s.len() >= 2 && s[0] == "h").then(|| s[1].clone())

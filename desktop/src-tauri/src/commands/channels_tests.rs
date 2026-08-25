@@ -463,13 +463,19 @@ fn starter_match_requires_open_unarchived_stream_by_normalized_name() {
 }
 
 #[test]
-fn last_message_filter_covers_all_human_visible_activity_kinds() {
-    let filter = last_message_filter("forum-1");
-
+fn last_message_filter_matches_the_channel_renderer() {
     assert_eq!(
-        filter,
+        last_message_filter("stream-1", "stream"),
         serde_json::json!({
-            "kinds": [9, 40002, 45001, 45003],
+            "kinds": [9, 40002],
+            "#h": ["stream-1"],
+            "limit": 1
+        })
+    );
+    assert_eq!(
+        last_message_filter("forum-1", "forum"),
+        serde_json::json!({
+            "kinds": [45001, 45003],
             "#h": ["forum-1"],
             "limit": 1
         })

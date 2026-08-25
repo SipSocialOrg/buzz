@@ -19,8 +19,12 @@ import {
 test("human-visible message kinds fire DM notifications", () => {
   assert.equal(isDmNotifiableKind(9), true, "kind:9 stream message");
   assert.equal(isDmNotifiableKind(40002), true, "kind:40002 stream message v2");
-  assert.equal(isDmNotifiableKind(45001), true, "kind:45001 forum post");
-  assert.equal(isDmNotifiableKind(45003), true, "kind:45003 forum comment");
+  assert.equal(isDmNotifiableKind(45001), false, "forum posts are not DM rows");
+  assert.equal(
+    isDmNotifiableKind(45003),
+    false,
+    "forum comments are not DM rows",
+  );
   assert.equal(
     isDmNotifiableKind(KIND_HUDDLE_STARTED),
     true,

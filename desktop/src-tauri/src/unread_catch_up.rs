@@ -166,21 +166,14 @@ pub(crate) async fn unread_catch_up(
         let session = session.handle();
         pending.spawn(async move {
             let _permit = permit;
-            let kinds: &[u32] = if channel.channel_type == "dm" {
-                &[
+            let kinds: &[u32] = match channel.channel_type.as_str() {
+                "dm" => &[
                     KIND_STREAM_MESSAGE,
                     KIND_STREAM_MESSAGE_V2,
-                    KIND_FORUM_POST,
-                    KIND_FORUM_COMMENT,
                     KIND_HUDDLE_STARTED,
-                ]
-            } else {
-                &[
-                    KIND_STREAM_MESSAGE,
-                    KIND_STREAM_MESSAGE_V2,
-                    KIND_FORUM_POST,
-                    KIND_FORUM_COMMENT,
-                ]
+                ],
+                "forum" => &[KIND_FORUM_POST, KIND_FORUM_COMMENT],
+                _ => &[KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_V2],
             };
             let filter = serde_json::json!({
                 "kinds": kinds,
@@ -253,6 +246,9 @@ fn classify_batch(
     for item in &fetched {
         let mut discovered = DiscoveredRoots::default();
         for event in &item.events {
+            if !is_human_channel_event(event, &item.channel.channel_type) {
+                continue;
+            }
             if event.pubkey.eq_ignore_ascii_case(&self_pubkey) {
                 let reference = thread_reference(&event.tags);
                 if let Some(root_id) = reference.root_id {
@@ -280,6 +276,9 @@ fn classify_batch(
         let mut activity_rows = Vec::new();
         let mut max_trigger = 0;
         for event in item.events {
+            if !is_human_channel_event(&event, &item.channel.channel_type) {
+                continue;
+            }
             if event.pubkey.eq_ignore_ascii_case(&self_pubkey)
                 || item
                     .channel
@@ -396,6 +395,26 @@ fn thread_reference(tags: &[Vec<String>]) -> ThreadReference {
     }
 }
 
+fn is_agent_only_event(tags: &[Vec<String>]) -> bool {
+    tags.iter()
+        .any(|tag| tag.as_slice() == ["audience".to_string(), "agent".to_string()])
+}
+
+fn is_human_channel_event(event: &EventView, channel_type: &str) -> bool {
+    if is_agent_only_event(&event.tags) {
+        return false;
+    }
+    let kind = u32::from(event.kind);
+    match channel_type {
+        "forum" => matches!(kind, KIND_FORUM_POST | KIND_FORUM_COMMENT),
+        "dm" => matches!(
+            kind,
+            KIND_STREAM_MESSAGE | KIND_STREAM_MESSAGE_V2 | KIND_HUDDLE_STARTED
+        ),
+        _ => matches!(kind, KIND_STREAM_MESSAGE | KIND_STREAM_MESSAGE_V2),
+    }
+}
+
 fn should_notify(
     event: &EventView,
     self_pubkey: &str,
@@ -477,6 +496,23 @@ mod tests {
             self_pubkey: "self".into(),
             muted_channel_ids: HashSet::new(),
         }
+    }
+
+    #[test]
+    fn channel_visibility_matches_renderers_and_exact_agent_tag() {
+        let mut stream = event("stream", "other", 1, &[&["h", "ch"]]);
+        assert!(is_human_channel_event(&stream, "stream"));
+        assert!(!is_human_channel_event(&stream, "forum"));
+
+        stream.kind = KIND_FORUM_POST as u16;
+        assert!(is_human_channel_event(&stream, "forum"));
+        assert!(!is_human_channel_event(&stream, "stream"));
+
+        stream.kind = KIND_STREAM_MESSAGE as u16;
+        stream.tags.push(vec!["p".into(), "self".into()]);
+        assert!(is_human_channel_event(&stream, "stream"));
+        stream.tags.push(vec!["audience".into(), "agent".into()]);
+        assert!(!is_human_channel_event(&stream, "stream"));
     }
 
     #[test]

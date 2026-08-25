@@ -133,7 +133,11 @@ export function useFeedDesktopNotifications(
       return;
     }
 
-    const currentFeedItems = collectHomeAlertItems(feed);
+    const currentFeedItems = collectHomeAlertItems(
+      feed,
+      channels,
+      normalizedPubkey,
+    );
 
     // Wait for sender profiles to load so notification titles include names.
     // Empty feeds do not need profiles; marking them initialized here keeps the
@@ -160,6 +164,7 @@ export function useFeedDesktopNotifications(
           {
             mentions: settings.slotAlertsEnabled.mention,
             needsAction: settings.slotAlertsEnabled.needs_action,
+            currentPubkey: normalizedPubkey,
           },
           channels,
         )

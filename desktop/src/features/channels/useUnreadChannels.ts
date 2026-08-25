@@ -30,10 +30,9 @@ import {
 } from "@/features/notifications/lib/shouldNotify";
 import type { RelayClient } from "@/shared/api/relayClientSession";
 import type { Channel, RelayEvent } from "@/shared/api/types";
-import { CHANNEL_MESSAGE_EVENT_KINDS } from "@/shared/constants/kinds";
+import { channelHumanUnreadKinds } from "@/shared/lib/humanChannelEventPolicy";
 import { useStableMap, useStableSet } from "@/shared/hooks/useStableReference";
 import { normalizeRelayUrl } from "@/features/profile/lib/selfProfileStorage";
-import { DM_NOTIFIABLE_EVENT_KINDS } from "./isDmNotifiableKind";
 import {
   addThreadActivityItems,
   projectActivityForScope,
@@ -77,9 +76,7 @@ const EMPTY_ROOT_IDS: ReadonlySet<string> = new Set();
 export function channelCatchUpEventKinds(
   channelType: Channel["channelType"] | undefined,
 ) {
-  return channelType === "dm"
-    ? DM_NOTIFIABLE_EVENT_KINDS
-    : CHANNEL_MESSAGE_EVENT_KINDS;
+  return channelHumanUnreadKinds(channelType ?? "stream");
 }
 
 function parseTimestamp(value: string | null | undefined) {
